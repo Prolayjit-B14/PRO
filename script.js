@@ -41,7 +41,7 @@ document.addEventListener('mousemove', e => {
       this.vy  = (Math.random() - 0.5) * 0.3;
       this.r   = Math.random() * 1.5 + 0.5;
       this.alpha = Math.random() * 0.5 + 0.1;
-      this.color = Math.random() > 0.7 ? '#00d4ff' : '#ffffff';
+      this.color = Math.random() > 0.7 ? '#D42B2B' : '#0A0A0A';
     }
     update() {
       this.x += this.vx; this.y += this.vy;
@@ -69,7 +69,7 @@ document.addEventListener('mousemove', e => {
           ctx.beginPath();
           ctx.moveTo(particles[i].x, particles[i].y);
           ctx.lineTo(particles[j].x, particles[j].y);
-          ctx.strokeStyle = `rgba(0,212,255,${0.04 * (1 - dist/100)})`;
+          ctx.strokeStyle = `rgba(10,10,10,${0.04 * (1 - dist/100)})`;
           ctx.lineWidth = 0.5;
           ctx.stroke();
         }
@@ -2433,3 +2433,40 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 })();
+
+/* ── HOME CONTACT FORM HANDLER ────────────────────────────── */
+window.handleHomeContactSubmit = function(e) {
+  e.preventDefault();
+  const nameEl = document.getElementById('homeContactName');
+  const emailEl = document.getElementById('homeContactEmail');
+  const subjectEl = document.getElementById('homeContactSubject');
+  const messageEl = document.getElementById('homeContactMessage');
+
+  const name = nameEl ? nameEl.value.trim() : '';
+  const email = emailEl ? emailEl.value.trim() : '';
+  const subject = subjectEl ? subjectEl.value : 'Portfolio Contact';
+  const message = messageEl ? messageEl.value.trim() : '';
+
+  if (!name || !email || !message) {
+    if (typeof showToast === 'function') {
+      showToast('⚠️ Please fill out all required fields.', 'error');
+    }
+    return;
+  }
+
+  if (typeof showToast === 'function') {
+    showToast(`📨 Thank you ${name}! Launching email client...`, 'success');
+  } else {
+    alert(`Thank you ${name}! Launching your email client...`);
+  }
+
+  // Trigger mailto link with encoded parameters
+  const mailtoUrl = `mailto:prolayjitbiswas2004@gmail.com?subject=${encodeURIComponent(subject + ' - From ' + name)}&body=${encodeURIComponent('Name: ' + name + '\nEmail: ' + email + '\n\nMessage:\n' + message)}`;
+  setTimeout(() => {
+    window.location.href = mailtoUrl;
+  }, 500);
+
+  // Reset form
+  const form = document.getElementById('homeContactForm');
+  if (form) form.reset();
+};
