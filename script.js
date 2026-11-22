@@ -4,32 +4,103 @@
 
 'use strict';
 
-/* ── CURSOR ───────────────────────────────────────────────── */
-const cursorGlow = document.getElementById('cursorGlow');
-const cursorDot  = document.getElementById('cursorDot');
-let mouseX = 0, mouseY = 0, glowX = 0, glowY = 0;
+/* ── CURSOR (INSTANT TRACKING & DYNAMIC HOVER EXPANSION) ──── */
+(function initCustomCursor() {
+  const dot = document.getElementById('cursorDot');
+  const glow = document.getElementById('cursorGlow');
+  if (!dot || !glow) return;
 
-document.addEventListener('mousemove', e => {
-  mouseX = e.clientX; mouseY = e.clientY;
-  cursorDot.style.left = mouseX + 'px';
-  cursorDot.style.top  = mouseY + 'px';
-});
+  // Only run on devices with a mouse/pointer (not touchscreens)
+  if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
 
-(function animateCursor() {
-  glowX += (mouseX - glowX) * 0.08;
-  glowY += (mouseY - glowY) * 0.08;
-  cursorGlow.style.left = glowX + 'px';
-  cursorGlow.style.top  = glowY + 'px';
-  requestAnimationFrame(animateCursor);
+  let mouseX = -100, mouseY = -100;
+  let glowX = -100, glowY = -100;
+  let isHovering = false;
+  let isClicking = false;
+  let isVisible = false;
+
+  // 1. Instant 0-latency tracking for center dot via passive listener
+  window.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+
+    if (!isVisible) {
+      isVisible = true;
+      dot.style.opacity = '1';
+      glow.style.opacity = '1';
+    }
+
+    // Direct hardware translation for instantaneous responsiveness
+    dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0)`;
+  }, { passive: true });
+
+  // 2. Hide when mouse leaves the viewport
+  document.addEventListener('mouseleave', () => {
+    isVisible = false;
+    dot.style.opacity = '0';
+    glow.style.opacity = '0';
+  });
+
+  document.addEventListener('mouseenter', () => {
+    isVisible = true;
+    dot.style.opacity = '1';
+    glow.style.opacity = '1';
+  });
+
+  // 3. Ultra-fast lerp loop for the glow ring (factor 0.28 = tight, responsive, no sluggish drag)
+  function renderCursor() {
+    glowX += (mouseX - glowX) * 0.28;
+    glowY += (mouseY - glowY) * 0.28;
+
+    const scale = isClicking ? 0.85 : isHovering ? 1.65 : 1;
+    glow.style.transform = `translate3d(${glowX}px, ${glowY}px, 0) scale(${scale})`;
+
+    requestAnimationFrame(renderCursor);
+  }
+  requestAnimationFrame(renderCursor);
+
+  // 4. Delegated hover detection (0 lag, O(1), instantaneous reaction on hover)
+  const hoverSelector = 'a, button, input, textarea, select, [role="button"], .interactive, .skill-card-v2, .skill-pill, .project-card, .hp-row, .research-card, .cert-card, .contact-social-btn, .domain-card, .btn-primary, .btn-secondary, .tag, .tech-pill, .badge, [onclick]';
+
+  document.addEventListener('mouseover', (e) => {
+    if (e.target && e.target.closest && e.target.closest(hoverSelector)) {
+      isHovering = true;
+      glow.classList.add('is-hovering');
+      dot.classList.add('is-hovering');
+    }
+  }, { passive: true });
+
+  document.addEventListener('mouseout', (e) => {
+    if (e.target && e.target.closest && e.target.closest(hoverSelector)) {
+      const related = e.relatedTarget;
+      if (!related || !related.closest || !related.closest(hoverSelector)) {
+        isHovering = false;
+        glow.classList.remove('is-hovering');
+        dot.classList.remove('is-hovering');
+      }
+    }
+  }, { passive: true });
+
+  // 5. Tactile click feedback
+  document.addEventListener('mousedown', () => {
+    isClicking = true;
+    glow.classList.add('is-clicking');
+  }, { passive: true });
+
+  document.addEventListener('mouseup', () => {
+    isClicking = false;
+    glow.classList.remove('is-clicking');
+  }, { passive: true });
 })();
 
-/* ── PARTICLE CANVAS ──────────────────────────────────────── */
+/* ── PARTICLE CANVAS (OPTIMIZED) ─────────────────────────── */
 (function initParticles() {
   const canvas = document.getElementById('particleCanvas');
-  const ctx    = canvas.getContext('2d');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
   let W = canvas.width  = window.innerWidth;
   let H = canvas.height = window.innerHeight;
-  const PARTICLE_COUNT = 80;
+  const PARTICLE_COUNT = 35;
   const particles = [];
 
   class Particle {
@@ -37,10 +108,10 @@ document.addEventListener('mousemove', e => {
     reset() {
       this.x   = Math.random() * W;
       this.y   = Math.random() * H;
-      this.vx  = (Math.random() - 0.5) * 0.3;
-      this.vy  = (Math.random() - 0.5) * 0.3;
+      this.vx  = (Math.random() - 0.5) * 0.25;
+      this.vy  = (Math.random() - 0.5) * 0.25;
       this.r   = Math.random() * 1.5 + 0.5;
-      this.alpha = Math.random() * 0.5 + 0.1;
+      this.alpha = Math.random() * 0.4 + 0.1;
       this.color = Math.random() > 0.7 ? '#D42B2B' : '#0A0A0A';
     }
     update() {
@@ -64,12 +135,13 @@ document.addEventListener('mousemove', e => {
       for (let j = i + 1; j < particles.length; j++) {
         const dx = particles[i].x - particles[j].x;
         const dy = particles[i].y - particles[j].y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < 100) {
+        const distSq = dx * dx + dy * dy;
+        if (distSq < 8100) { // 90px threshold squared
+          const dist = Math.sqrt(distSq);
           ctx.beginPath();
           ctx.moveTo(particles[i].x, particles[i].y);
           ctx.lineTo(particles[j].x, particles[j].y);
-          ctx.strokeStyle = `rgba(10,10,10,${0.04 * (1 - dist/100)})`;
+          ctx.strokeStyle = `rgba(10,10,10,${0.035 * (1 - dist / 90)})`;
           ctx.lineWidth = 0.5;
           ctx.stroke();
         }
@@ -77,65 +149,77 @@ document.addEventListener('mousemove', e => {
     }
   }
 
+  let animId;
   function loop() {
     ctx.clearRect(0, 0, W, H);
     particles.forEach(p => { p.update(); p.draw(); });
     connectParticles();
-    requestAnimationFrame(loop);
+    animId = requestAnimationFrame(loop);
   }
   loop();
 
+  let resizeTimeout;
   window.addEventListener('resize', () => {
-    W = canvas.width  = window.innerWidth;
-    H = canvas.height = window.innerHeight;
-  });
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      W = canvas.width  = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+    }, 150);
+  }, { passive: true });
 })();
 
-/* ── NAVBAR ───────────────────────────────────────────────── */
+/* ── NAVBAR & SCROLL (OPTIMIZED & THROTTLED) ──────────────── */
 const navbar = document.getElementById('navbar');
 const hamburger = document.getElementById('navHamburger');
 const navLinks  = document.getElementById('navLinks');
 const navLinkEls = document.querySelectorAll('.nav-link');
 
+let isScrolling = false;
 window.addEventListener('scroll', () => {
-  navbar.classList.toggle('scrolled', window.scrollY > 20);
+  if (!isScrolling) {
+    window.requestAnimationFrame(() => {
+      const scrollY = window.scrollY;
+      if (navbar) navbar.classList.toggle('scrolled', scrollY > 20);
 
-  // Active link scroll check
-  const sections = document.querySelectorAll('section[id]');
-  let current = '';
-  sections.forEach(s => {
-    if (window.scrollY >= s.offsetTop - 120) current = s.id;
-  });
-  navLinkEls.forEach(l => {
-    const href = l.getAttribute('href');
-    if (href) {
-      l.classList.toggle('active', href === '#' + current);
-    }
-  });
+      // Active link scroll check
+      const sections = document.querySelectorAll('section[id]');
+      let current = '';
+      sections.forEach(s => {
+        if (scrollY >= s.offsetTop - 120) current = s.id;
+      });
+      navLinkEls.forEach(l => {
+        const href = l.getAttribute('href');
+        if (href) {
+          l.classList.toggle('active', href === '#' + current);
+        }
+      });
 
-
-  // Reading progress bar for active blog post
-  const progressBar = document.getElementById('readingProgressBar');
-  const readerView = document.getElementById('blogPostReader');
-  if (progressBar) {
-    if (readerView && readerView.style.display === 'block') {
-      const winHeight = window.innerHeight;
-      const scrolled = window.scrollY - (readerView.offsetTop - 100);
-      const totalHeight = readerView.scrollHeight - winHeight;
-      if (totalHeight > 0) {
-        const pct = Math.max(0, Math.min(100, (scrolled / totalHeight) * 100));
-        progressBar.style.width = pct + '%';
-        progressBar.style.opacity = '1';
-      } else {
-        progressBar.style.width = '0%';
-        progressBar.style.opacity = '0';
+      // Reading progress bar for active blog post
+      const progressBar = document.getElementById('readingProgressBar');
+      const readerView = document.getElementById('blogPostReader');
+      if (progressBar) {
+        if (readerView && readerView.style.display === 'block') {
+          const winHeight = window.innerHeight;
+          const scrolled = scrollY - (readerView.offsetTop - 100);
+          const totalHeight = readerView.scrollHeight - winHeight;
+          if (totalHeight > 0) {
+            const pct = Math.max(0, Math.min(100, (scrolled / totalHeight) * 100));
+            progressBar.style.width = pct + '%';
+            progressBar.style.opacity = '1';
+          } else {
+            progressBar.style.width = '0%';
+            progressBar.style.opacity = '0';
+          }
+        } else {
+          progressBar.style.width = '0%';
+          progressBar.style.opacity = '0';
+        }
       }
-    } else {
-      progressBar.style.width = '0%';
-      progressBar.style.opacity = '0';
-    }
+      isScrolling = false;
+    });
+    isScrolling = true;
   }
-});
+}, { passive: true });
 
 if (hamburger && navLinks) {
   hamburger.addEventListener('click', () => {
@@ -416,7 +500,7 @@ const cardObserver = new IntersectionObserver((entries) => {
   });
 }, { threshold: 0.1 });
 
-document.querySelectorAll('.achievement-card, .research-card, .cert-card, .blog-card, .exp-card, .project-card, .skill-category, .domain-card').forEach((card, i) => {
+document.querySelectorAll('.achievement-card, .research-card, .cert-card, .blog-card, .exp-card, .project-card, .skill-category, .domain-card, .skill-card-v2').forEach((card, i) => {
   card.style.opacity = '0';
   card.style.transform = 'translateY(20px)';
   card.style.transition = `opacity 0.5s ease, transform 0.5s ease`;
@@ -1394,7 +1478,7 @@ const componentWallData = {
     title: "ESP32 MCU Module (Espressif Systems)",
     desc: `<strong>Core Specs:</strong> Dual-core Tensilica LX6 @ 240MHz, 520KB SRAM, Integrated Wi-Fi & Bluetooth BLE.<br/>
     <strong>Pin Integrations:</strong> GPIOs for PWM motor controls, SPI bus for SD cards, and hardware UART for GPS/GSM interfaces.<br/>
-    <strong>System Role:</strong> Serves as the primary coordinator for RescueBOT and AgriSense, handling web server broadcasting, local ML pose parsing, and RF multiplexing.`
+    <strong>System Role:</strong> Serves as the primary coordinator for RescueBOT and Krishi Setu, handling web server broadcasting, local ML pose parsing, and RF multiplexing.`
   },
   lora: {
     title: "LoRa SX1278 Transceiver (Semtech)",
@@ -1430,7 +1514,7 @@ const componentWallData = {
     title: "DHT22 Temperature & Humidity Sensor",
     desc: `<strong>Core Specs:</strong> Temperature range -40 to 80°C (±0.5°C), Humidity range 0-100% (±2%), 1-Wire proprietary serial interface.<br/>
     <strong>Pin Integrations:</strong> Single digital data bus pin pulled high with a 10K resistor, VCC, GND.<br/>
-    <strong>System Role:</strong> Gathered environmental parameters in the RescueBOT search zone and local AgriSense soil environment chambers.`
+    <strong>System Role:</strong> Gathered environmental parameters in the RescueBOT search zone and local Krishi Setu soil environment chambers.`
   },
   mq135: {
     title: "MQ-135 Hazardous Gas Sensor",
@@ -1575,11 +1659,40 @@ DIO0 (IRQ)  -->  GPIO 2
   },
   'sargamai-ai': {
     tag: 'AI & Software',
-    title: 'Building Sargamai — Gemini AI for Indian Classical Music',
+    title: 'Building Sargam AI — Gemini AI for Indian Classical Music',
     meta: 'Status: Planned · Expected: August 2025 · By Prolayjit Biswas',
-    content: `<p>Sargamai is an educational AI assistant that analyzes Indian Classical Music structures. Developed for the Google Solution Challenge 2025, it utilizes Gemini 2.5 Flash API to parse vocal waveforms and identify ragas and talas.</p>
+    content: `<p>Sargam is an educational AI assistant that analyzes Indian Classical Music structures. Developed for the Google Solution Challenge 2025, it utilizes Gemini 2.5 Flash API to parse vocal waveforms and identify ragas and talas.</p>
     <p>By capturing short audio snippets through a Web Audio API recorder, the client sends base64 PCM data to our backend. The backend constructs a structured prompt instructing the model to compare the frequency transitions against historical swara sequences, returning a raga breakdown.</p>
     <p>The system was recognized in the top 105 projects in India, validating the potential of generative AI in music education.</p>`
+  },
+  'fpga-accelerators': {
+    tag: 'VLSI & FPGA',
+    title: 'Designing Low-Power FPGA Accelerators for Edge AI Models',
+    meta: 'Published: August 2026 · Reading Time: 5 mins · By Prolayjit Biswas',
+    content: `<p>Deploying deep neural networks on edge devices presents significant power and throughput challenges. In this article, I explore microarchitecture optimization, clock domain crossing, and pipelining techniques for TinyML inference on Xilinx FPGAs using Verilog and Vivado.</p>
+    <h4>Key Architecture Takeaways:</h4>
+    <ol style="margin-left: 1.5rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+      <li><strong>Fixed-Point Quantization:</strong> Converting 32-bit floating-point weights into INT8/INT4 reduces DSP block consumption by over 60% without significant accuracy loss.</li>
+      <li><strong>Systolic Array Processing:</strong> Pipelined multiply-accumulate (MAC) units maximize clock frequency while reducing global routing congestion.</li>
+      <li><strong>AXI-Stream DMA Integration:</strong> High-bandwidth DMA streaming transfers enable real-time camera feed processing with minimal CPU overhead.</li>
+    </ol>`
+  },
+  'esp32-telemetry': {
+    tag: 'Embedded & IoT',
+    title: 'Building Real-Time Telemetry Systems with ESP32 & WebSockets',
+    meta: 'Published: July 2026 · Reading Time: 7 mins · By Prolayjit Biswas',
+    content: `<p>A deep dive into constructing high-frequency, low-latency telemetry pipelines for field robotics and IoT monitoring devices using ESP32, FreeRTOS, and WebSockets.</p>
+    <h4>Pipeline Architecture:</h4>
+    <p>Using dual-core ESP32 processors, Core 0 is dedicated to handling network buffers and WebSocket frame dispatch, while Core 1 executes deterministic sensor reading loops via FreeRTOS priority queues.</p>
+    <p>Combined with a lightweight Node.js/Next.js dashboard frontend, latency dropped below 45ms over local Wi-Fi, making remote robotic rover control feel instant and responsive.</p>`
+  },
+  'tcad-cmos': {
+    tag: 'Semiconductors & TCAD',
+    title: 'From Schematic to Silicon: CMOS Logic Simulation in TCAD',
+    meta: 'Published: June 2026 · Reading Time: 6 mins · By Prolayjit Biswas',
+    content: `<p>Understanding transistor behavior beyond idealized BSIM models requires deep semiconductor physics simulation. In this study, I examine MOSFET gate oxide capacitance, short-channel effects, and subthreshold leakage using Silvaco TCAD.</p>
+    <h4>Physical Simulations:</h4>
+    <p>By simulating 2D doping profiles and electrical field distributions under varying gate biases, we observed the precise onset of Drain-Induced Barrier Lowering (DIBL) and threshold voltage roll-off in sub-45nm gate lengths.</p>`
   }
 };
 
@@ -1712,9 +1825,9 @@ window.handleTerminalCommand = function(event) {
       break;
     case 'projects':
       outputDiv.innerHTML = `- RescueBOT Rover: IoT Disaster Response Telemetry Rover
-      - AgriSense Pro: Smart Soil Sensing & Edge AI Advisor
+      - Krishi Setu: Smart Soil Sensing & Edge AI Advisor
       - Women Safety Wearable: GPS/GSM Alert Tracker (MAKATHON '25 Winner)
-      - ESO Disaster AI Monitor: Wildfire YOLO Object Detector & Priority System`;
+      - Sargam AI: Indian Classical Musicology Platform (Google SC Top 105)`;
       break;
     case 'stats':
       outputDiv.innerHTML = `🏆 Hackathon Wins: 2
@@ -1770,8 +1883,8 @@ const projectDetailsData = {
     future: "Integrating LiDAR-Lite sensors for SLAM mapping of voids and replacing the RF link with a LoRa mesh repeater system to extend operation deeper into subterranean spaces."
   },
   agrisense: {
-    title: "AgriSense Pro Smart Agriculture Node",
-    subtitle: "IoT & Edge AI · Summer Hack 1.0 Winner · 2025",
+    title: "Krishi Setu Smart Agriculture Node",
+    subtitle: "IoT & Edge AI · InnovateX 2026 Techfest Finalist",
     gitLink: "https://github.com/Prolayjit-B14/AgriSense",
     liveLink: "",
     tags: ["ESP32", "RS485 NPK", "Gemini AI", "WebSockets", "Firebase", "Node-RED"],
@@ -1781,7 +1894,7 @@ const projectDetailsData = {
       "Update Rate": "15 Minute Intervals",
       "AI Engine": "Gemini 2.5 Flash API"
     },
-    overview: "AgriSense Pro is an autonomous solar-powered telemetry node that tracks real-time soil health, moisture profiles, and weather anomalies. It leverages Gemini AI to generate custom fertilization schedules based on direct soil NPK measurements.",
+    overview: "Krishi Setu is an autonomous solar-powered telemetry node that tracks real-time soil health, moisture profiles, and weather anomalies. It leverages Gemini AI to generate custom fertilization schedules based on direct soil NPK measurements.",
     problem: "Traditional farming relies on calendar-based fertilization, leading to fertilizer runoff, soil acidification, and crop failure. Smallholder farmers lack access to real-time soil analysis laboratories to adjust parameters dynamically.",
     objectives: "1. Deploy high-durability soil probes matching industrial RS485 standards.\n2. Achieve self-sustaining solar power collection for continuous year-round deployments.\n3. Deliver crop health recommendations in local languages using Generative AI.",
     architecture: "Sensors read NPK levels and moisture, sending data via RS485 Modbus protocol to an ESP32. The ESP32 connects via Wi-Fi to a Firebase database. A server-side script routes this data to the Gemini API, which generates crop-specific advice displayed on the user's dashboard.",
@@ -1905,7 +2018,7 @@ const projectDetailsData = {
     problem: "Using breadboards or point-to-point soldering for complex embedded systems leads to loose contacts, parasite capacitance, and large form factors.",
     objectives: "1. Design professional, compact PCBs utilizing SMD components.\n2. Maintain correct ground planes to mitigate high-frequency noise.\n3. Optimize Bill of Materials (BOM) for low-cost manufacturing.",
     architecture: "The design workflow includes schematic capture, footprint mapping, board layout routing, DRC verification, and exporting Gerber, drill, and BOM files for fabrication.",
-    hardware: "Boards designed: 1. RescueBOT motherboard (ESP32 base), 2. Women Safety Wearable (ATmega + GSM), 3. AgriSense Solar regulator board.",
+    hardware: "Boards designed: 1. RescueBOT motherboard (ESP32 base), 2. Women Safety Wearable (ATmega + GSM), 3. Krishi Setu Solar regulator board.",
     software: "Utilized KiCad 8.0 for board layout routing and Altium Designer for high-frequency signal simulation.",
     aiml: "Not applicable. High frequency signal analysis simulated via numerical solvers.",
     cad: "Boards 3D outlines exported to Fusion 360 to verify mechanical fit inside custom 3D printed enclosures.",
@@ -1949,7 +2062,7 @@ const projectDetailsData = {
       "Design System": "Glassmorphism Dark",
       "Target Platforms": "Android / iOS App"
     },
-    overview: "A mobile application UI/UX design matching the AgriSense Pro ecosystem. Built to provide farmers with soil data, charts, and recommendations in an accessible interface.",
+    overview: "A mobile application UI/UX design matching the Krishi Setu ecosystem. Built to provide farmers with soil data, charts, and recommendations in an accessible interface.",
     problem: "Agricultural technology applications have cluttered, text-heavy layouts that are difficult for farmers to interpret quickly.",
     objectives: "1. Construct a clean dashboard displaying primary metrics (NPK, moisture, solar state) clearly.\n2. Design interactive charting elements for historical trends.\n3. Prototype crop advisory cards detailing suggestions.",
     architecture: "Figma project with components, typography hierarchies, auto-layout constraints, and interactive transitions.",
@@ -1980,13 +2093,13 @@ const projectDetailsData = {
     hardware: "3D prints executed on Creality Ender-3 and Bambu Lab P1P printers.",
     software: "Fusion 360 for parametric modeling. Cura and PrusaSlicer for print path generation.",
     aiml: "Not applicable.",
-    cad: "Created assemblies including: 1. RescueBOT rover base plates, 2. Wristwatch strap linkages, 3. AgriSense wall mount brackets.",
+    cad: "Created assemblies including: 1. RescueBOT rover base plates, 2. Wristwatch strap linkages, 3. Krishi Setu wall mount brackets.",
     results: "Successfully manufactured 8 mechanical assemblies. Achieved excellent fit alignment with fabricated PCBs.",
-    challenges: "PLA models deformed when exposed to hot sunlight in agricultural setups. Solved by upgrading the AgriSense enclosure design to ASA filament, which supports UV stability and heat resistance up to 95°C.",
+    challenges: "PLA models deformed when exposed to hot sunlight in agricultural setups. Solved by upgrading the Krishi Setu enclosure design to ASA filament, which supports UV stability and heat resistance up to 95°C.",
     future: "Utilizing generative design modules in Fusion 360 to minimize material weight for drone brackets."
   },
   sargamai: {
-    title: "Sargamai Indian Classical Music Platform",
+    title: "Sargam AI Indian Classical Music Platform",
     subtitle: "AI & Musicology · Google Solution Challenge Top 105 · 2025",
     gitLink: "https://github.com/Prolayjit-B14/Bugs-Fixes",
     liveLink: "https://sargamai.netlify.app/",
@@ -1997,7 +2110,7 @@ const projectDetailsData = {
       "Validation Acc": "89.2%",
       "Development": "6 Months"
     },
-    overview: "Sargamai is an AI-powered music platform built to teach, transcribe, and analyze Indian Classical Music. Using audio recording features, it classifies ragas and talas and runs 'Beethoven AI' for classical composition assists.",
+    overview: "Sargam AI is an AI-powered music platform built to teach, transcribe, and analyze Indian Classical Music. Using audio recording features, it classifies ragas and talas and runs 'Beethoven AI' for classical composition assists.",
     problem: "Indian Classical Music has complex structure (swaras, ragas, talas) traditionally taught only in person. Existing tuning and teaching apps fail to identify modal transitions and melodic structures dynamically.",
     objectives: "1. Build a low-latency Web Audio API recorder to capture vocal structures.\n2. Interface with Gemini 2.5 Flash API to perform structural waveform analyses.\n3. Implement a complete digital library of ragas, talas, and artist profiles.",
     architecture: "The frontend is a React application capturing user vocals as base64 PCM chunks. The Node.js backend processes these packages and feeds them to the Gemini API with structured system instructions, returning granular notation analytics.",
@@ -2470,3 +2583,76 @@ window.handleHomeContactSubmit = function(e) {
   const form = document.getElementById('homeContactForm');
   if (form) form.reset();
 };
+
+/* ── HACKATHON DETAIL MODAL CONTROLLER ───────────────────── */
+window.openHackathonModal = function(card) {
+  if (!card) return;
+  const overlay = document.getElementById('hackathonModalOverlay');
+  if (!overlay) return;
+
+  const eventName = card.dataset.event || 'Hackathon Event';
+  const badgeText = card.dataset.badge || 'VERIFIED RESULT';
+  const badgeClass = card.dataset.badgeClass || 'winner';
+  const project = card.dataset.project || 'Project Title';
+  const role = card.dataset.role || 'Contributor';
+  const tech = card.dataset.tech || 'Hardware, Software';
+  const result = card.dataset.result || 'Finalist';
+  const desc = card.dataset.desc || 'Built under hackathon sprint conditions.';
+
+  const badgeEl = document.getElementById('modalHackBadge');
+  const eventEl = document.getElementById('modalHackEvent');
+  const projectEl = document.getElementById('modalHackProject');
+  const roleEl = document.getElementById('modalHackRole');
+  const resultEl = document.getElementById('modalHackResult');
+  const techContainer = document.getElementById('modalHackTech');
+  const descEl = document.getElementById('modalHackDesc');
+
+  if (badgeEl) {
+    badgeEl.textContent = badgeText;
+    badgeEl.className = `hack-log-badge ${badgeClass}`;
+  }
+  if (eventEl) eventEl.textContent = eventName;
+  if (projectEl) projectEl.textContent = project;
+  if (roleEl) roleEl.textContent = role;
+  if (resultEl) resultEl.textContent = result;
+  if (descEl) descEl.textContent = desc;
+
+  if (techContainer) {
+    techContainer.innerHTML = '';
+    const techItems = tech.split(',').map(t => t.trim()).filter(Boolean);
+    techItems.forEach(item => {
+      const chip = document.createElement('span');
+      chip.className = 'hack-modal-chip';
+      chip.textContent = item;
+      techContainer.appendChild(chip);
+    });
+  }
+
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+};
+
+window.closeHackathonModal = function() {
+  const overlay = document.getElementById('hackathonModalOverlay');
+  if (overlay) {
+    overlay.classList.remove('active');
+  }
+  document.body.style.overflow = '';
+};
+
+window.handleHackModalOverlayClick = function(e) {
+  if (e && e.target && e.target.id === 'hackathonModalOverlay') {
+    window.closeHackathonModal();
+  }
+};
+
+// Keyboard listener (Escape closes modal)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const overlay = document.getElementById('hackathonModalOverlay');
+    if (overlay && overlay.classList.contains('active')) {
+      window.closeHackathonModal();
+    }
+  }
+});
+
